@@ -22,6 +22,10 @@ def parse_worker():
     )
     df['duration'] = df['gmt_pod_finished'] - df['gmt_created']
 
+    # drop jobs whose host_ip is not in the topo.csv
+    host_ip_set = set(pd.read_csv('../data/topo.csv')['ip'])
+    df = df[df['host_ip'].isin(host_ip_set)]
+
     res_nan_jobs = df[df['RES'].isna()]['job_name'].unique()
     # these jobs are cpu-only jobs (might be RL jobs?)
     for job in res_nan_jobs:
