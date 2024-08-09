@@ -5,38 +5,48 @@ import pandas as pd
 
 def parse_worker():
     start_time = datetime.strptime('2023/07/15 00:00', '%Y/%m/%d %H:%M')
-    end_time = datetime.strptime('2023/07/31 23:59', '%Y/%m/%d %H:%M')
 
     df = pd.read_csv('../data/worker.csv')
+    stat_dict = {
+        'initial_count': len(df),
+    }
 
+    # Count missing time entries before dropna
+    missing_created = df['gmt_created'].isna()
+    missing_finished = df['gmt_pod_finished'].isna()
+    stat_dict['missing_time'] = (missing_created | missing_finished).sum()
+
+    # Remove entries with any missing 'gmt_created' or 'gmt_pod_finished'
     df.dropna(subset=['gmt_created', 'gmt_pod_finished'], how='any', inplace=True)
-    df['gmt_created'] = df['gmt_created'].fillna('2023/07/15 00:00')
-    df['gmt_pod_finished'] = df['gmt_pod_finished'].fillna('2023/07/31 23:59')
+
     df['gmt_created'] = df['gmt_created'].apply(
-        lambda x:
-        (datetime.strptime(x, '%Y/%m/%d %H:%M') - start_time).total_seconds() / 86400
+        lambda x: (datetime.strptime(x, '%Y/%m/%d %H:%M') - start_time).total_seconds() / 86400
     )
     df['gmt_pod_finished'] = df['gmt_pod_finished'].apply(
-        lambda x:
-        (datetime.strptime(x, '%Y/%m/%d %H:%M') - start_time).total_seconds() / 86400
+        lambda x: (datetime.strptime(x, '%Y/%m/%d %H:%M') - start_time).total_seconds() / 86400
     )
     df['duration'] = df['gmt_pod_finished'] - df['gmt_created']
 
-    # drop jobs whose host_ip is not in the topo.csv
+    # Check for invalid duration
+    invalid_duration_df = df[df['duration'] <= 0]
+    stat_dict['invalid_duration'] = len(invalid_duration_df)
+    df = df[df['duration'] > 0]
+
+    # Drop jobs whose host_ip is not in the topo.csv
     host_ip_set = set(pd.read_csv('../data/topo.csv')['ip'])
+    invalid_ip_df = df[~df['host_ip'].isin(host_ip_set)]
+    stat_dict['invalid_host_ip'] = len(invalid_ip_df)
     df = df[df['host_ip'].isin(host_ip_set)]
 
-    res_nan_jobs = df[df['RES'].isna()]['job_name'].unique()
-    # these jobs are cpu-only jobs (might be RL jobs?)
-    for job in res_nan_jobs:
-        # should only use a single worker
-        assert len(df[df['job_name'] == job]) == 1
+    # Check for missing RES
+    missing_res_df = df[df['RES'].isna()]
+    stat_dict['missing_res'] = len(missing_res_df['job_name'].unique())
     df = df.dropna(subset=['RES'])
 
     df['RES'] = df['RES'].apply(ast.literal_eval)
     df['num_gpus'] = df['RES'].apply(lambda x: int(x['nvidia.com/gpu']) if 'nvidia.com/gpu' in x else None)
-    # df['num_gpus'] = df['num_gpus'].astype(int)
-    return df
+
+    return df, stat_dict
 
 
 df_worker_valid = parse_worker()
