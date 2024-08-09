@@ -37,3 +37,35 @@ def parse_worker():
 
 df_worker_valid = parse_worker()
 df_worker_GPU = df_worker_valid[df_worker_valid['num_gpus'].notna()]
+
+
+def parse_job():
+    global df_worker_GPU
+    jobs = df_worker_GPU['job_name'].unique()
+    groups = df_worker_GPU.groupby('job_name')
+
+    list_start_time = []
+    list_end_time = []
+    list_num_gpus = []
+    for job in jobs:
+        start_time = groups.get_group(job)['gmt_created'].min()
+        end_time = groups.get_group(job)['gmt_pod_finished'].max()
+        num_gpus = groups.get_group(job)['num_gpus'].sum()
+
+        list_start_time.append(start_time)
+        list_end_time.append(end_time)
+        list_num_gpus.append(num_gpus)
+
+    df_jobs = pd.DataFrame({
+        "job_name": jobs,
+        "start_time": list_start_time,
+        "end_time": list_end_time,
+        "num_gpus": list_num_gpus
+    })
+
+    df_jobs['duration'] = df_jobs['end_time'] - df_jobs['start_time']
+    return df_jobs
+
+
+df_worker_jobs = parse_job()
+
