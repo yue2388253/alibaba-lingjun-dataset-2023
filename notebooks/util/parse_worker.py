@@ -4,21 +4,19 @@ import pandas as pd
 
 
 def parse_worker():
-    start_time = datetime.strptime('2023/07/15 00:00', '%Y/%m/%d %H:%M')
-
     df = pd.read_csv('../data/worker.csv')
-    stat_dict = {
-        'initial_count': len(df),
-    }
+    stat = []
 
     # Count missing time entries before dropna
     missing_created = df['gmt_created'].isna()
     missing_finished = df['gmt_pod_finished'].isna()
-    stat_dict['missing_time'] = (missing_created | missing_finished).sum()
+    missing_time = missing_created | missing_finished
+    stat.append((sum(missing_time), "MissingTime"))
 
     # Remove entries with any missing 'gmt_created' or 'gmt_pod_finished'
     df.dropna(subset=['gmt_created', 'gmt_pod_finished'], how='any', inplace=True)
 
+    start_time = datetime.strptime('2023/07/15 00:00', '%Y/%m/%d %H:%M')
     df['gmt_created'] = df['gmt_created'].apply(
         lambda x: (datetime.strptime(x, '%Y/%m/%d %H:%M') - start_time).total_seconds() / 86400
     )
@@ -28,28 +26,29 @@ def parse_worker():
     df['duration'] = df['gmt_pod_finished'] - df['gmt_created']
 
     # Check for invalid duration
-    invalid_duration_df = df[df['duration'] <= 0]
-    stat_dict['invalid_duration'] = len(invalid_duration_df)
+    invalid_duration_index = df['duration'] <= 0
+    stat.append((sum(invalid_duration_index), "InvalidDuration"))
     df = df[df['duration'] > 0]
 
     # Drop jobs whose host_ip is not in the topo.csv
     host_ip_set = set(pd.read_csv('../data/topo.csv')['ip'])
-    invalid_ip_df = df[~df['host_ip'].isin(host_ip_set)]
-    stat_dict['invalid_host_ip'] = len(invalid_ip_df)
+    invalid_ip_index = ~df['host_ip'].isin(host_ip_set)
+    stat.append((sum(invalid_ip_index), "InvalidIP"))
     df = df[df['host_ip'].isin(host_ip_set)]
 
     # Check for missing RES
-    missing_res_df = df[df['RES'].isna()]
-    stat_dict['missing_res'] = len(missing_res_df['job_name'].unique())
+    missing_res_index = df['RES'].isna()
+    stat.append((sum(missing_res_index), "MissingRes"))
     df = df.dropna(subset=['RES'])
 
     df['RES'] = df['RES'].apply(ast.literal_eval)
     df['num_gpus'] = df['RES'].apply(lambda x: int(x['nvidia.com/gpu']) if 'nvidia.com/gpu' in x else None)
+    stat.append((len(df), "Valid"))
 
-    return df, stat_dict
+    return df, stat
 
 
-df_worker_valid = parse_worker()
+df_worker_valid, _ = parse_worker()
 df_worker_GPU = df_worker_valid[df_worker_valid['num_gpus'].notna()]
 
 
